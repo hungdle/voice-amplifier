@@ -7,7 +7,11 @@ const controls = {
   gain: { slider: $('gain'), label: $('gainLabel') },
   bass: { slider: $('bass'), label: $('bassLabel') },
   treble: { slider: $('treble'), label: $('trebleLabel') },
-  echo: { slider: $('echo'), label: $('echoLabel') }
+  echo: { slider: $('echo'), label: $('echoLabel') },
+  echoTime: { slider: $('echoTime'), label: $('echoTimeLabel') },
+  echoFeedback: { slider: $('echoFeedback'), label: $('echoFeedbackLabel') },
+  reverb: { slider: $('reverb'), label: $('reverbLabel') },
+  reverbTime: { slider: $('reverbTime'), label: $('reverbTimeLabel') }
 };
 let stream = null;
 let context = null;
@@ -15,6 +19,7 @@ let nodes = null;
 let animationId = null;
 let busy = false;
 let stopRequested = false;
+let reverbImpulse = null;
 
 function showError(message) {
   errorBox.textContent = message;
@@ -30,16 +35,44 @@ function updateControls() {
   const bass = Number(controls.bass.slider.value);
   const treble = Number(controls.treble.slider.value);
   const echo = Number(controls.echo.slider.value) / 100;
+  const echoTime = Number(controls.echoTime.slider.value) / 1000;
+  const echoFeedback = Number(controls.echoFeedback.slider.value) / 100;
+  const reverb = Number(controls.reverb.slider.value) / 100;
+  const reverbTime = Number(controls.reverbTime.slider.value) / 10;
   controls.gain.label.textContent = `${Math.round(gain * 100)}%`;
   controls.bass.label.textContent = `${bass > 0 ? '+' : ''}${bass} dB`;
   controls.treble.label.textContent = `${treble > 0 ? '+' : ''}${treble} dB`;
   controls.echo.label.textContent = `${Math.round(echo * 100)}%`;
+  controls.echoTime.label.textContent = `${Math.round(echoTime * 1000)} ms`;
+  controls.echoFeedback.label.textContent = `${Math.round(echoFeedback * 100)}%`;
+  controls.reverb.label.textContent = `${Math.round(reverb * 100)}%`;
+  controls.reverbTime.label.textContent = `${reverbTime.toFixed(1)} s`;
   if (!context || !nodes || context.state === 'closed') return;
   const t = context.currentTime;
   nodes.outputGain.gain.setTargetAtTime(gain * 0.5, t, 0.02);
   nodes.bass.gain.setTargetAtTime(bass, t, 0.02);
   nodes.treble.gain.setTargetAtTime(treble, t, 0.02);
   nodes.echoGain.gain.setTargetAtTime(echo, t, 0.02);
+  nodes.delay.delayTime.setTargetAtTime(echoTime, t, 0.02);
+  nodes.feedbackGain.gain.setTargetAtTime(echoFeedback, t, 0.02);
+  nodes.reverbGain.gain.setTargetAtTime(reverb, t, 0.02);
+  if (reverbImpulse !== reverbTime) {
+    nodes.convolver.buffer = makeImpulse(context, reverbTime);
+    reverbImpulse = reverbTime;
+  }
+}
+function makeImpulse(ctx, seconds) {
+  // Artificial room reverb; no remote impulse file required.
+  const length = Math.max(1, Math.floor(ctx.sampleRate * seconds));
+  const buffer = ctx.createBuffer(2, length, ctx.sampleRate);
+  for (let channel = 0; channel < 2; channel++) {
+    const data = buffer.getChannelData(channel);
+    for (let i = 0; i < length; i++) {
+      const progress = i / length;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - progress, 3) * 0.55;
+    }
+  }
+  return buffer;
 }
 Object.values(controls).forEach(({ slider }) => slider.addEventListener('input', updateControls));
 
@@ -71,6 +104,7 @@ async function stop() {
     });
   }
   nodes = null;
+  reverbImpulse = null;
   const oldContext = context;
   context = null;
   if (oldContext && oldContext.state !== 'closed') {
@@ -106,8 +140,15 @@ async function start() {
   const treble = context.createBiquadFilter();
   treble.type = 'highshelf';
   treble.frequency.value = 3000;
-  const delay = context.createDelay(0.5);
-  delay.delayTime.value = 0.18;
+  const delay = context.createDelay(1.0);
+  delay.delayTime.value = 0.22;
+  const feedbackGain = context.createGain();
+  feedbackGain.gain.value = 0;
+  const convolver = context.createConvolver();
+  convolver.buffer = makeImpulse(context, 1.2);
+  reverbImpulse = 1.2;
+  const reverbGain = context.createGain();
+  reverbGain.gain.value = 0;
   const echoGain = context.createGain();
   echoGain.gain.value = 0;
   const mix = context.createGain();
@@ -117,14 +158,26 @@ async function start() {
   source.connect(analyser);
   source.connect(bass);
   bass.connect(treble);
-  // Dry path and a single delayed repeat (no recursive feedback loop).
+  // Dry + limited feedback echo + artificial room reverb.
   treble.connect(mix);
   treble.connect(delay);
   delay.connect(echoGain);
   echoGain.connect(mix);
-  mix.connect(outputGain);
+  delay.connect(feedbackGain);
+  feedbackGain.connect(delay);
+  treble.connect(convolver);
+  convolver.connect(reverbGain);
+  reverbGain.connect(mix);
+  const limiter = context.createDynamicsCompressor();
+  limiter.threshold.value = -18;
+  limiter.knee.value = 8;
+  limiter.ratio.value = 12;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.2;
+  mix.connect(limiter);
+  limiter.connect(outputGain);
   outputGain.connect(context.destination);
-  nodes = { source, analyser, bass, treble, delay, echoGain, mix, outputGain };
+  nodes = { source, analyser, bass, treble, delay, feedbackGain, echoGain, convolver, reverbGain, mix, limiter, outputGain };
   await context.resume();
   if (stopRequested || document.hidden) return;
   updateControls();

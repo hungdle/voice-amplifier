@@ -1,4 +1,4 @@
-# Voice Amplifier v0.2
+# Voice Amplifier v0.3
 
 A small, static HTML/CSS/JavaScript experiment that routes phone microphone audio to the browser's audio output, with adjustable **Bass**, **Treble**, **Echo**, and output level.
 
@@ -30,3 +30,11 @@ On iOS, browser audio routing may select the earpiece rather than the loudspeake
 - `index.html` – UI
 - `style.css` – responsive styling
 - `app.js` – Web Audio signal graph and controls
+
+## v0.3: Echo & Reverb
+
+- Echo wet: 0–70%, echo delay: 80–800 ms, feedback: 0–55% (repeating echoes).
+- Reverb wet: 0–50%, artificial room decay: 0.4–3.0 s, generated locally with a Web Audio ConvolverNode.
+- Dynamics compressor reduces peaks, but **does not prevent acoustic feedback**.
+- Both effects start at zero. Use low device volume; built-in mic and speaker can howl loudly.
+- Web browser speaker routing and latency vary by iOS/Android device.
