@@ -11,7 +11,10 @@ const controls = {
   echoTime: { slider: $('echoTime'), label: $('echoTimeLabel') },
   echoFeedback: { slider: $('echoFeedback'), label: $('echoFeedbackLabel') },
   reverb: { slider: $('reverb'), label: $('reverbLabel') },
-  reverbTime: { slider: $('reverbTime'), label: $('reverbTimeLabel') }
+  reverbTime: { slider: $('reverbTime'), label: $('reverbTimeLabel') },
+  windCut: { slider: $('windCut'), label: $('windCutLabel') },
+  fanCut: { slider: $('fanCut'), label: $('fanCutLabel') },
+  gateThreshold: { slider: $('gateThreshold'), label: $('gateThresholdLabel') }
 };
 let stream = null;
 let context = null;
@@ -20,6 +23,24 @@ let animationId = null;
 let busy = false;
 let stopRequested = false;
 let reverbImpulse = null;
+let gateLevel = 1;
+let guardTripped = false;
+let suspiciousFrames = 0;
+let lastMeterTime = 0;
+const guardStatus = $('guardStatus');
+function resetGuard() {
+  guardTripped = false;
+  suspiciousFrames = 0;
+  $('resetGuard').hidden = true;
+  guardStatus.classList.remove('alert');
+  guardStatus.textContent = 'Giám sát tiếng rít: đang sẵn sàng (không thay thế chống hú chuyên dụng).';
+  updateControls();
+}
+$('resetGuard').addEventListener('click', resetGuard);
+for (const id of ['noiseFilter','humFilter','gateEnabled','feedbackGuard']) {
+  $(id).addEventListener('change', updateControls);
+}
+
 
 function showError(message) {
   errorBox.textContent = message;
@@ -47,9 +68,18 @@ function updateControls() {
   controls.echoFeedback.label.textContent = `${Math.round(echoFeedback * 100)}%`;
   controls.reverb.label.textContent = `${Math.round(reverb * 100)}%`;
   controls.reverbTime.label.textContent = `${reverbTime.toFixed(1)} s`;
+  controls.windCut.label.textContent = `${controls.windCut.slider.value} Hz`;
+  controls.fanCut.label.textContent = `${controls.fanCut.slider.value} Hz`;
+  controls.gateThreshold.label.textContent = `${controls.gateThreshold.slider.value} dBFS`;
   if (!context || !nodes || context.state === 'closed') return;
   const t = context.currentTime;
-  nodes.outputGain.gain.setTargetAtTime(gain * 0.5, t, 0.02);
+  nodes.outputGain.gain.setTargetAtTime(guardTripped ? 0 : gain * 0.5, t, 0.02);
+  nodes.highpass.frequency.setTargetAtTime($('noiseFilter').checked ? Number(controls.windCut.slider.value) : 20, t, 0.03);
+  nodes.lowpass.frequency.setTargetAtTime($('noiseFilter').checked ? Number(controls.fanCut.slider.value) : Math.min(20000, context.sampleRate * 0.45), t, 0.03);
+  nodes.humNotch.Q.value = 18;
+  nodes.humNotch.frequency.value = $('humFilter').checked ? 50 : 10;
+  nodes.humNotch.gain.value = 0;
+  if (!$('gateEnabled').checked) nodes.gate.gain.setTargetAtTime(1, t, 0.03);
   nodes.bass.gain.setTargetAtTime(bass, t, 0.02);
   nodes.treble.gain.setTargetAtTime(treble, t, 0.02);
   nodes.echoGain.gain.setTargetAtTime(echo, t, 0.02);
@@ -76,16 +106,49 @@ function makeImpulse(ctx, seconds) {
 }
 Object.values(controls).forEach(({ slider }) => slider.addEventListener('input', updateControls));
 
-function updateMeter() {
-  if (!nodes) return;
-  const samples = new Uint8Array(nodes.analyser.fftSize);
-  nodes.analyser.getByteTimeDomainData(samples);
+function updateMeter(timestamp = 0) {
+  if (!nodes || !context) return;
+  const samples = new Float32Array(nodes.analyser.fftSize);
+  nodes.analyser.getFloatTimeDomainData(samples);
   let sum = 0;
-  for (const sample of samples) {
-    const x = (sample - 128) / 128;
-    sum += x * x;
+  for (const sample of samples) sum += sample * sample;
+  const rms = Math.sqrt(sum / samples.length);
+  meter.value = Math.min(100, Math.round(rms * 250));
+  const db = 20 * Math.log10(Math.max(rms, 0.000001));
+  if ($('gateEnabled').checked) {
+    const threshold = Number(controls.gateThreshold.slider.value);
+    // Hysteresis reduces chattering, but quiet speech can still be lost.
+    const shouldOpen = db > threshold + (gateLevel < 0.5 ? 4 : -4);
+    gateLevel = shouldOpen ? 1 : 0.06;
+    nodes.gate.gain.setTargetAtTime(gateLevel, context.currentTime, shouldOpen ? 0.012 : 0.12);
+  } else gateLevel = 1;
+  // Heuristic: sustained strong narrowband energy in the microphone signal.
+  // This is NOT acoustic feedback cancellation and may false-trigger on whistles/music.
+  if (timestamp - lastMeterTime >= 100) {
+    lastMeterTime = timestamp;
+    if ($('feedbackGuard').checked && !guardTripped && rms > 0.045) {
+      const bins = new Float32Array(nodes.spectrum.frequencyBinCount);
+      nodes.spectrum.getFloatFrequencyData(bins);
+      const hzPerBin = context.sampleRate / nodes.spectrum.fftSize;
+      let maxPower = 0, totalPower = 0;
+      const lo = Math.max(1, Math.ceil(700 / hzPerBin));
+      const hi = Math.min(bins.length - 1, Math.floor(5000 / hzPerBin));
+      for (let i = lo; i <= hi; i++) {
+        const power = Math.pow(10, bins[i] / 10);
+        totalPower += power;
+        maxPower = Math.max(maxPower, power);
+      }
+      const tonal = totalPower > 0 && maxPower / totalPower > 0.38;
+      suspiciousFrames = tonal ? suspiciousFrames + 1 : Math.max(0, suspiciousFrames - 2);
+      if (suspiciousFrames >= 7) {
+        guardTripped = true;
+        nodes.outputGain.gain.setTargetAtTime(0, context.currentTime, 0.008);
+        guardStatus.textContent = 'Phát hiện tín hiệu rít kéo dài: đã tắt âm đầu ra. Giảm âm lượng trước khi khôi phục.';
+        guardStatus.classList.add('alert');
+        $('resetGuard').hidden = false;
+      }
+    } else suspiciousFrames = 0;
   }
-  meter.value = Math.min(100, Math.round(Math.sqrt(sum / samples.length) * 250));
   animationId = requestAnimationFrame(updateMeter);
 }
 
@@ -105,6 +168,7 @@ async function stop() {
   }
   nodes = null;
   reverbImpulse = null;
+  resetGuard();
   const oldContext = context;
   context = null;
   if (oldContext && oldContext.state !== 'closed') {
@@ -119,6 +183,7 @@ async function start() {
     throw new Error('Trình duyệt không hỗ trợ micro. Hãy dùng HTTPS trên Safari/Chrome.');
   }
   stopRequested = false;
+  resetGuard();
   const localStream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
     video: false
@@ -155,8 +220,23 @@ async function start() {
   const outputGain = context.createGain();
   outputGain.gain.value = 0;
   // Input meter measures raw mic signal, not amplified output.
+  const highpass = context.createBiquadFilter();
+  highpass.type = 'highpass'; highpass.frequency.value = 120;
+  const humNotch = context.createBiquadFilter();
+  humNotch.type = 'notch'; humNotch.frequency.value = 50; humNotch.Q.value = 18;
+  const lowpass = context.createBiquadFilter();
+  lowpass.type = 'lowpass'; lowpass.frequency.value = 6500;
+  const gate = context.createGain(); gate.gain.value = 1;
+  const spectrum = context.createAnalyser();
+  spectrum.fftSize = 2048;
+  spectrum.smoothingTimeConstant = 0.7;
   source.connect(analyser);
-  source.connect(bass);
+  source.connect(spectrum);
+  source.connect(highpass);
+  highpass.connect(humNotch);
+  humNotch.connect(lowpass);
+  lowpass.connect(gate);
+  gate.connect(bass);
   bass.connect(treble);
   // Dry + limited feedback echo + artificial room reverb.
   treble.connect(mix);
@@ -177,7 +257,7 @@ async function start() {
   mix.connect(limiter);
   limiter.connect(outputGain);
   outputGain.connect(context.destination);
-  nodes = { source, analyser, bass, treble, delay, feedbackGain, echoGain, convolver, reverbGain, mix, limiter, outputGain };
+  nodes = { source, analyser, spectrum, highpass, humNotch, lowpass, gate, bass, treble, delay, feedbackGain, echoGain, convolver, reverbGain, mix, limiter, outputGain };
   await context.resume();
   if (stopRequested || document.hidden) return;
   updateControls();

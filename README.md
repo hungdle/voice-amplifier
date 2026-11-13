@@ -1,40 +1,25 @@
-# Voice Amplifier v0.3
+# Voice Amplifier v0.4
 
-A small, static HTML/CSS/JavaScript experiment that routes phone microphone audio to the browser's audio output, with adjustable **Bass**, **Treble**, **Echo**, and output level.
+A mobile-browser microphone-to-speaker prototype using the Web Audio API. No recording or uploads.
 
-## Run on GitHub Pages
+## Features
+- Volume, bass, treble, echo, echo feedback, reverb
+- Wind rumble reduction: adjustable high-pass (60–350 Hz)
+- Fan/hiss reduction: adjustable low-pass (2.5–10 kHz)
+- Optional 50 Hz hum notch (does not remove all motor harmonics)
+- Optional RMS noise gate with threshold and hysteresis
+- Experimental feedback warning: detects sustained strong narrowband tones and **mutes output** until manually reset
 
-1. Upload `index.html`, `app.js`, `style.css` to the root of a public GitHub repository.
-2. Open **Settings → Pages**, choose **Deploy from a branch**, branch `main`, folder `/(root)`, then save.
-3. Open `https://YOUR_USERNAME.github.io/voice-amplifier/` on your phone using HTTPS.
-4. Start with your phone's **hardware volume very low**, allow microphone access, then tap **Bật micro**.
+## Important limitations
+- **Not true acoustic feedback cancellation**. It may miss feedback or falsely trigger on music/whistling.
+- Filters cannot isolate a voice from overlapping fan noise; low-pass reduces voice brightness.
+- Echo and reverb increase feedback risk. Start with both off and phone volume low.
+- iOS Safari may route output unexpectedly; no guarantee of loudspeaker routing.
+- Browser microphone permission requires HTTPS (GitHub Pages) or localhost.
+- Browser may suspend audio in the background.
 
-## Audio processing
+## Deployment
+Upload `index.html`, `style.css`, `app.js`, `README.md` to the repository root, then enable GitHub Pages from `main` / `(root)`.
 
-`Microphone → bass lowshelf (250 Hz) → treble highshelf (3 kHz) → dry + single echo (180 ms) → limited output gain → speaker`
-
-- Bass/Treble: -12 to +12 dB shelving filters.
-- Echo: 0–40% single delayed repeat; off by default.
-- Output level: 0–100% UI maps to 0–0.5 gain, not above unity.
-- Built-in echo cancellation is requested from the browser, but may not prevent acoustic feedback.
-- Microphone level meter reads the input, not the speaker output.
-
-## Safety and limitations
-
-**Feedback warning:** A phone's microphone and speaker are very close. Start with low hardware volume, keep the speaker away from your ear, and stop immediately if squealing occurs. Bass/Treble/Echo are effects, not anti-feedback processing. The output gain limit does not guarantee safe loudness.
-
-On iOS, browser audio routing may select the earpiece rather than the loudspeaker; this app cannot reliably force speakerphone routing. Mobile browsers may pause audio when backgrounded. The app does not record or upload audio.
-
-## Files
-
-- `index.html` – UI
-- `style.css` – responsive styling
-- `app.js` – Web Audio signal graph and controls
-
-## v0.3: Echo & Reverb
-
-- Echo wet: 0–70%, echo delay: 80–800 ms, feedback: 0–55% (repeating echoes).
-- Reverb wet: 0–50%, artificial room decay: 0.4–3.0 s, generated locally with a Web Audio ConvolverNode.
-- Dynamics compressor reduces peaks, but **does not prevent acoustic feedback**.
-- Both effects start at zero. Use low device volume; built-in mic and speaker can howl loudly.
-- Web browser speaker routing and latency vary by iOS/Android device.
+## Testing
+Start with system volume very low, no headphones, device away from ears. Test wind filter with a fan, then the gate. Do not deliberately create loud feedback. If ringing begins, press Stop immediately.
