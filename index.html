@@ -4,12 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111827">
-  <title>Voice Amplifier v0.5</title>
+  <title>Voice Amplifier v0.6</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="app">
     <header><p class="eyebrow">MIC → SPEAKER</p><h1>Voice Amplifier</h1><p class="sub">Karaoke mixer: phát nhạc MP3 và hát qua micro với hiệu ứng độc lập.</p></header>
+    <section class="panel" aria-label="Thiết bị phát âm thanh">
+      <h2>🔊 Thiết bị phát / Audio Output</h2>
+      <p class="hint">Safari iPhone có thể chỉ hiển thị đầu ra mặc định. Không thể bảo đảm ép loa ngoài hoặc chọn mọi thiết bị Bluetooth từ website.</p>
+      <p id="routeSupport" class="hint" role="status">Đang kiểm tra khả năng hỗ trợ…</p>
+      <label for="outputSelect">Thiết bị đầu ra được trình duyệt cung cấp</label>
+      <select id="outputSelect"><option value="">Mặc định của hệ thống</option></select>
+      <div class="transport"><button id="refreshOutputs" class="secondary" type="button">Quét thiết bị</button><button id="requestOutput" class="secondary" type="button">Yêu cầu chọn loa</button></div>
+      <button id="applyOutput" class="primary" type="button">Thử áp dụng cho nhạc và micro</button>
+      <p id="routeStatus" class="hint" role="status" aria-live="polite">Chưa thay đổi đầu ra. Khi thử, hãy xác nhận bằng tai xem nhạc và micro có phát đúng loa không.</p>
+      <p class="hint">Nếu không đổi được loa trên iPhone: mở Control Center → nhấn biểu tượng AirPlay ở thẻ đang phát âm thanh → chọn thiết bị. iOS có thể tự quyết định tuyến phát khi micro hoạt động.</p>
+    </section>
     <section class="panel music-panel" aria-label="Nhạc nền Karaoke">
       <h2>🎵 Nhạc nền / Beat</h2>
       <label for="musicFile">Chọn nhạc MP3, WAV hoặc M4A</label>
@@ -69,7 +80,7 @@
       <p id="error" class="error" role="alert" hidden></p>
     </section>
     <section class="notes"><h2>Lưu ý an toàn</h2><p>Không để loa gần tai. Giữ âm lượng hệ thống thấp trước khi bật. Nếu có tiếng hú/rít, tắt micro ngay. Bộ lọc chỉ giảm tạp âm theo tần số và phát hiện tiếng rít bất thường, không thay thế chống hú chuyên dụng.</p><p>Safari trên iPhone có thể không định tuyến âm thanh ra loa ngoài; trình duyệt không thể đảm bảo chọn loa. Không ghi âm hoặc tải âm thanh lên máy chủ.</p></section>
-    <footer>v0.5 · Không tải file nhạc hoặc micro lên máy chủ</footer>
+    <footer>v0.6 · Không tải file nhạc hoặc micro lên máy chủ</footer>
   </main>
   <script src="app.js" defer></script>
 </body>

@@ -389,3 +389,85 @@ music.addEventListener('error', () => {
 window.addEventListener('pagehide', () => { if (musicUrl) URL.revokeObjectURL(musicUrl); });
 updateMusicControls();
 syncTransport();
+
+
+// v0.6: best-effort browser audio output discovery and routing.
+// Both Web Audio graphs use separate AudioContexts; each must be routed independently.
+// A successful setSinkId promise does NOT prove the physical speaker changed.
+const outputSelect = $('outputSelect');
+const routeStatus = $('routeStatus');
+const requestOutput = $('requestOutput');
+const routeSupport = $('routeSupport');
+const supportsContextSink = typeof (window.AudioContext || window.webkitAudioContext)?.prototype?.setSinkId === 'function';
+const supportsElementSink = typeof HTMLMediaElement !== 'undefined' && typeof HTMLMediaElement.prototype.setSinkId === 'function';
+const supportsChooser = !!navigator.mediaDevices?.selectAudioOutput;
+let outputBusy = false;
+let requestedSinkId = '';
+function routeMessage(message) { routeStatus.textContent = message; }
+function outputCapabilities() {
+  routeSupport.textContent = `Web Audio routing: ${supportsContextSink ? 'có' : 'không'} · Media element routing: ${supportsElementSink ? 'có' : 'không'} · Trình chọn loa: ${supportsChooser ? 'có' : 'không'}.`;
+  requestOutput.disabled = !supportsChooser;
+  $('applyOutput').disabled = !supportsContextSink;
+}
+async function refreshOutputs() {
+  const previous = outputSelect.value || requestedSinkId;
+  outputSelect.replaceChildren(new Option('Mặc định của hệ thống', ''));
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    routeMessage('Trình duyệt không hỗ trợ liệt kê thiết bị. Hãy chọn đầu ra qua hệ điều hành.');
+    return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const outputs = devices.filter(d => d.kind === 'audiooutput');
+    for (const [i, d] of outputs.entries()) {
+      if (!d.deviceId) continue;
+      outputSelect.add(new Option(d.label || `Đầu ra ${i + 1}`, d.deviceId));
+    }
+    if (previous && [...outputSelect.options].some(o => o.value === previous)) outputSelect.value = previous;
+    routeMessage(outputs.length ? `Trình duyệt cung cấp ${outputs.length} đầu ra. Chọn thiết bị rồi nhấn Thử áp dụng.` : 'Không có danh sách loa khả dụng. iPhone có thể chỉ cho chọn loa qua Control Center.');
+  } catch (err) { routeMessage(`Không thể liệt kê thiết bị: ${err.message || err}`); }
+}
+async function applyOutput() {
+  if (outputBusy) return;
+  outputBusy = true;
+  $('applyOutput').disabled = true;
+  const sink = outputSelect.value || '';
+  requestedSinkId = sink;
+  try {
+    if (!supportsContextSink) {
+      routeMessage('Web Audio không hỗ trợ setSinkId trên trình duyệt này. Không thể chuyển mixer bằng danh sách này; dùng Control Center / cài đặt Android.');
+      return;
+    }
+    const active = [context, musicContext].filter(c => c && c.state !== 'closed');
+    if (!active.length) {
+      routeMessage('Đã ghi nhận lựa chọn cho phiên này. Bật micro hoặc phát nhạc, sau đó nhấn Thử áp dụng để kiểm tra đầu ra.');
+      return;
+    }
+    const results = await Promise.allSettled(active.map(c => c.setSinkId(sink)));
+    const success = results.filter(r => r.status === 'fulfilled').length;
+    if (success === active.length) {
+      routeMessage(`API chấp nhận yêu cầu cho ${success}/${active.length} luồng âm thanh. Hãy NGHE để xác nhận loa thật sự đổi; Safari có thể báo thành công nhưng không đổi tuyến phát.`);
+    } else {
+      const failures = results.filter(r => r.status === 'rejected').map(r => r.reason?.message || String(r.reason));
+      routeMessage(`Chỉ ${success}/${active.length} luồng chấp nhận yêu cầu. ${failures.join('; ')}. Có thể cần dùng Control Center.`);
+    }
+  } catch (err) { routeMessage(`Không thể chọn đầu ra: ${err.message || err}`); }
+  finally { outputBusy = false; $('applyOutput').disabled = !supportsContextSink; }
+}
+$('refreshOutputs').addEventListener('click', refreshOutputs);
+requestOutput.addEventListener('click', async () => {
+  if (!supportsChooser) return;
+  try {
+    const chosen = await navigator.mediaDevices.selectAudioOutput();
+    await refreshOutputs();
+    if (chosen.deviceId && ![...outputSelect.options].some(o => o.value === chosen.deviceId)) {
+      outputSelect.add(new Option(chosen.label || 'Thiết bị vừa chọn', chosen.deviceId));
+    }
+    outputSelect.value = chosen.deviceId || '';
+    routeMessage('Đã nhận lựa chọn từ trình duyệt. Nhấn Thử áp dụng và xác nhận bằng tai.');
+  } catch (err) { routeMessage(`Không chọn được loa: ${err.message || err}`); }
+});
+$('applyOutput').addEventListener('click', applyOutput);
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { void refreshOutputs(); });
+outputCapabilities();
+void refreshOutputs();
