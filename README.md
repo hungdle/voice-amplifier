@@ -1,3 +1,5 @@
+# Voice Amplifier v0.7 — Micro presets
+
 # Voice Amplifier v0.6 — Audio Output Detection
 
 Static mobile-first karaoke mixer for GitHub Pages. No backend, no upload of microphone or music files.
@@ -29,3 +31,11 @@ Upload `index.html`, `style.css`, `app.js`, `README.md` to the root of `hungdle/
 ## Limitations and safety
 
 Browser audio routing support varies by browser and OS. Safari may ignore a route change even after a successful API call. Bluetooth speakers may be unavailable for mic monitoring, or introduce high latency. No browser code can guarantee speakerphone selection. Microphone and speaker on one phone can create dangerous feedback. Start with low physical volume, Echo/Reverb at zero, and stop immediately if feedback occurs. Feedback guard is experimental, not hearing protection. Audio routing cannot be fully validated without real devices.
+
+## v0.7 changes
+- Audio output picker hidden/removed from the UI because iPhone Safari routing is unreliable. Playback uses the OS default route.
+- Three one-tap microphone presets: **Tự nhiên**, **Karaoke**, **Hội trường**.
+- **Tùy chỉnh** expands detailed microphone Bass, Treble, Echo, Echo Delay, Echo Feedback, Reverb, and Reverb Time sliders.
+- Manually moving a microphone effects slider changes the selected preset state to custom. Re-select a preset to restore its values.
+- Music controls and the v0.4 noise/safety section are unchanged.
+- These are starting points, not guaranteed safe settings. Start with low system volume; speaker-to-mic feedback can occur.
