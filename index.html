@@ -4,18 +4,36 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#111827">
-  <title>Voice Amplifier v0.4</title>
+  <title>Voice Amplifier v0.5</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="app">
-    <header><p class="eyebrow">MIC → SPEAKER</p><h1>Voice Amplifier</h1><p class="sub">Phát micro trực tiếp, tùy chỉnh bass, treble, echo, reverb và lọc tạp âm.</p></header>
-    <section class="panel" aria-label="Điều khiển âm thanh">
-      <div class="status"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">Chưa bật micro</span></div>
+    <header><p class="eyebrow">MIC → SPEAKER</p><h1>Voice Amplifier</h1><p class="sub">Karaoke mixer: phát nhạc MP3 và hát qua micro với hiệu ứng độc lập.</p></header>
+    <section class="panel music-panel" aria-label="Nhạc nền Karaoke">
+      <h2>🎵 Nhạc nền / Beat</h2>
+      <label for="musicFile">Chọn nhạc MP3, WAV hoặc M4A</label>
+      <input id="musicFile" type="file" accept="audio/*,.mp3,.wav,.m4a">
+      <p id="musicName" class="hint">Chưa chọn bài hát. File chỉ được mở trên thiết bị.</p>
+      <audio id="musicPlayer" preload="metadata"></audio>
+      <div class="transport"><button id="musicPlay" type="button" class="primary" disabled>▶ Phát nhạc</button><button id="musicStop" type="button" class="secondary" disabled>■ Dừng</button></div>
+      <label for="seek">Vị trí bài hát <strong id="timeLabel">0:00 / 0:00</strong></label>
+      <input id="seek" type="range" min="0" max="1000" step="1" value="0" disabled>
+      <label for="musicVolume">Âm lượng nhạc <strong id="musicVolumeLabel">30%</strong></label>
+      <input id="musicVolume" type="range" min="0" max="100" value="30">
+      <label for="musicBass">Bass nhạc <strong id="musicBassLabel">0 dB</strong></label>
+      <input id="musicBass" type="range" min="-12" max="12" value="0">
+      <label for="musicTreble">Treble nhạc <strong id="musicTrebleLabel">0 dB</strong></label>
+      <input id="musicTreble" type="range" min="-12" max="12" value="0">
+      <p id="musicError" class="error" role="alert" hidden></p>
+      <p class="hint">Nhạc và micro có đường xử lý riêng. Echo, Reverb, Noise Filter và Feedback Guard chỉ xử lý micro; tiếng nhạc từ loa vẫn có thể lọt vào micro.</p>
+    </section>
+    <section class="panel" aria-label="Micro và hiệu ứng giọng hát">
+      <h2>🎤 Micro / Giọng hát</h2><div class="status"><span id="dot" class="dot"></span><span id="status" role="status" aria-live="polite">Chưa bật micro</span></div>
       <button id="toggle" class="primary" type="button">Bật micro</button>
       <label for="gain">Mức tín hiệu phát <strong id="gainLabel">10%</strong></label>
       <input id="gain" type="range" min="0" max="100" step="1" value="10">
-      <p class="hint">Giới hạn gain ở 0.5. Điều chỉnh âm lượng loa bằng nút vật lý; bắt đầu từ mức thấp.</p>
+      <p class="hint">Gain micro giới hạn ở 0.5. Điều chỉnh âm lượng loa bằng nút vật lý; bắt đầu từ mức thấp.</p>
       <label for="bass">Bass <strong id="bassLabel">0 dB</strong></label>
       <input id="bass" type="range" min="-12" max="12" step="1" value="0">
       <label for="treble">Treble <strong id="trebleLabel">0 dB</strong></label>
@@ -51,7 +69,7 @@
       <p id="error" class="error" role="alert" hidden></p>
     </section>
     <section class="notes"><h2>Lưu ý an toàn</h2><p>Không để loa gần tai. Giữ âm lượng hệ thống thấp trước khi bật. Nếu có tiếng hú/rít, tắt micro ngay. Bộ lọc chỉ giảm tạp âm theo tần số và phát hiện tiếng rít bất thường, không thay thế chống hú chuyên dụng.</p><p>Safari trên iPhone có thể không định tuyến âm thanh ra loa ngoài; trình duyệt không thể đảm bảo chọn loa. Không ghi âm hoặc tải âm thanh lên máy chủ.</p></section>
-    <footer>v0.4 · Xử lý âm thanh trực tiếp trên thiết bị</footer>
+    <footer>v0.5 · Không tải file nhạc hoặc micro lên máy chủ</footer>
   </main>
   <script src="app.js" defer></script>
 </body>

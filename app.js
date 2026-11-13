@@ -284,6 +284,108 @@ toggle.addEventListener('click', async () => {
     toggle.disabled = false;
   }
 });
-document.addEventListener('visibilitychange', () => { if (document.hidden) void stop(); });
-window.addEventListener('pagehide', () => { void stop(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { void stop(); pauseMusic(); } });
+window.addEventListener('pagehide', () => { void stop(); pauseMusic(); });
 updateControls();
+
+
+// Karaoke music path: isolated from microphone effects and guard.
+const music = $('musicPlayer');
+let musicUrl = null;
+let musicContext = null;
+let musicNodes = null;
+let musicBusy = false;
+function musicMessage(message) {
+  $('musicError').textContent = message;
+  $('musicError').hidden = !message;
+}
+function formatTime(value) {
+  if (!Number.isFinite(value) || value < 0) return '0:00';
+  return `${Math.floor(value / 60)}:${String(Math.floor(value % 60)).padStart(2, '0')}`;
+}
+function syncTransport() {
+  const duration = music.duration;
+  $('musicPlay').textContent = music.paused ? '▶ Phát nhạc' : '❚❚ Tạm dừng';
+  $('musicPlay').disabled = !musicUrl || musicBusy;
+  $('musicStop').disabled = !musicUrl;
+  $('seek').disabled = !Number.isFinite(duration) || duration <= 0;
+  $('seek').value = Number.isFinite(duration) && duration > 0 ? Math.round(music.currentTime / duration * 1000) : 0;
+  $('timeLabel').textContent = `${formatTime(music.currentTime)} / ${formatTime(duration)}`;
+}
+function updateMusicControls() {
+  for (const id of ['musicVolume','musicBass','musicTreble']) {
+    const v = Number($(id).value);
+    $(id + 'Label').textContent = id === 'musicVolume' ? `${v}%` : `${v > 0 ? '+' : ''}${v} dB`;
+  }
+  if (!musicNodes || !musicContext || musicContext.state === 'closed') return;
+  const t = musicContext.currentTime;
+  musicNodes.volume.gain.setTargetAtTime(Number($('musicVolume').value) / 100, t, 0.02);
+  musicNodes.bass.gain.setTargetAtTime(Number($('musicBass').value), t, 0.02);
+  musicNodes.treble.gain.setTargetAtTime(Number($('musicTreble').value), t, 0.02);
+}
+function ensureMusicGraph() {
+  if (musicNodes) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) throw new Error('Trình duyệt không hỗ trợ Web Audio API.');
+  musicContext = new Ctx({ latencyHint: 'interactive' });
+  const source = musicContext.createMediaElementSource(music);
+  const bass = musicContext.createBiquadFilter();
+  bass.type = 'lowshelf'; bass.frequency.value = 250;
+  const treble = musicContext.createBiquadFilter();
+  treble.type = 'highshelf'; treble.frequency.value = 3000;
+  const volume = musicContext.createGain();
+  const limiter = musicContext.createDynamicsCompressor();
+  limiter.threshold.value = -12; limiter.ratio.value = 10;
+  source.connect(bass); bass.connect(treble); treble.connect(volume);
+  volume.connect(limiter); limiter.connect(musicContext.destination);
+  musicNodes = { source, bass, treble, volume, limiter };
+  updateMusicControls();
+}
+function pauseMusic() { music.pause(); syncTransport(); }
+$('musicFile').addEventListener('change', (event) => {
+  pauseMusic();
+  if (musicUrl) { URL.revokeObjectURL(musicUrl); musicUrl = null; }
+  music.removeAttribute('src'); music.load();
+  musicMessage('');
+  const file = event.target.files?.[0];
+  if (!file) { $('musicName').textContent = 'Chưa chọn bài hát.'; syncTransport(); return; }
+  if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|aac|ogg)$/i.test(file.name)) {
+    $('musicName').textContent = 'Định dạng không hợp lệ.';
+    musicMessage('Vui lòng chọn file âm thanh MP3, WAV hoặc M4A.');
+    syncTransport(); return;
+  }
+  musicUrl = URL.createObjectURL(file);
+  music.src = musicUrl;
+  $('musicName').textContent = file.name;
+  syncTransport();
+});
+$('musicPlay').addEventListener('click', async () => {
+  if (!musicUrl || musicBusy) return;
+  musicMessage('');
+  if (!music.paused) { pauseMusic(); return; }
+  musicBusy = true; syncTransport();
+  try {
+    ensureMusicGraph();
+    await musicContext.resume();
+    await music.play();
+  } catch (err) {
+    musicMessage('Không thể phát nhạc: ' + (err.message || String(err)));
+    pauseMusic();
+  } finally { musicBusy = false; syncTransport(); }
+});
+$('musicStop').addEventListener('click', () => { pauseMusic(); music.currentTime = 0; syncTransport(); });
+$('seek').addEventListener('input', () => {
+  if (Number.isFinite(music.duration) && music.duration > 0) {
+    music.currentTime = Number($('seek').value) / 1000 * music.duration;
+    syncTransport();
+  }
+});
+for (const id of ['musicVolume','musicBass','musicTreble']) $(id).addEventListener('input', updateMusicControls);
+for (const type of ['timeupdate','loadedmetadata','play','pause','ended','durationchange']) music.addEventListener(type, syncTransport);
+music.addEventListener('error', () => {
+  if (musicUrl) musicMessage('Không đọc được file nhạc này trên trình duyệt. Thử MP3 hoặc WAV.');
+  syncTransport();
+});
+window.addEventListener('pagehide', () => { if (musicUrl) URL.revokeObjectURL(musicUrl); });
+updateMusicControls();
+syncTransport();
