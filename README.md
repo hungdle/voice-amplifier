@@ -1,41 +1,21 @@
-# Voice Amplifier v0.7 — Micro presets
+# Voice Amplifier v0.8 — Smart Voice (experimental)
 
-# Voice Amplifier v0.6 — Audio Output Detection
+Static GitHub Pages app. No backend. No audio uploads. Based on v0.7; keeps music player, karaoke mixer, three microphone presets, bass/treble, echo/reverb, wind/fan filters, noise gate, feedback guard. Device selector remains hidden.
 
-Static mobile-first karaoke mixer for GitHub Pages. No backend, no upload of microphone or music files.
+## New in v0.8
+- Smart Voice toggle, limited voice boost (1–2× before existing output safety gain), focus bandpass, compressor. These process *all* mic audio, not isolated vocals.
+- Browser-requested AEC, noise suppression and AGC; actual reported settings displayed where available. Restart microphone to change these. On some browsers these features may be ignored or distort singing.
+- Three five-second RMS microphone diagnostics: music only, voice only, music+voice. Results are in dBFS and **cannot quantify vocal separation**. Keep speaker volume and position consistent.
 
-## Features
-
-All v0.5 functionality is retained: local MP3/WAV/M4A player with seek, music volume/Bass/Treble; microphone with volume, Bass/Treble, Echo, Reverb; high/low-pass noise filters, 50 Hz notch, noise gate, experimental feedback guard.
-
-New v0.6 output panel:
-- Enumerates browser-exposed `audiooutput` devices.
-- Optionally invokes `navigator.mediaDevices.selectAudioOutput()` if available.
-- Attempts `AudioContext.setSinkId()` on both active Web Audio contexts, if supported.
-- Explains unsupported browsers and how to choose output in iOS Control Center.
-- Never claims that the physical output has changed merely because the API resolved.
-
-## Publish
-
-Upload `index.html`, `style.css`, `app.js`, `README.md` to the root of `hungdle/voice-amplifier`, then GitHub Settings > Pages > Deploy from branch `main` / `(root)`.
+## Deploy
+Upload `index.html`, `style.css`, `app.js`, `README.md` to repository root; enable GitHub Pages from main/root. Open over HTTPS.
 
 ## Testing
+1. Set system volume low, Echo and Reverb to zero. Start mic and grant permission.
+2. Select MP3 and test music playback, pause, seek, mic preset, Smart Voice sliders.
+3. Run each diagnostic with phone ~30 cm from mouth. Use consistent playback volume.
+4. Compare Smart Voice on/off, AEC on/off (restart mic), with actual listening.
+5. If squealing/feedback starts, stop mic immediately. Do not put speaker near ear.
 
-1. Open the HTTPS site on an iPhone and an Android phone.
-2. Tap **Quét thiết bị**; compare visible outputs.
-3. Load a local MP3 and play at low volume. Try selecting a device; verify by listening.
-4. Turn on the microphone at low volume. Try output selection again and verify both paths independently.
-5. On iPhone, compare routing from Control Center / AirPlay.
-6. Test stop, pause, backgrounding, reconnecting Bluetooth, and feedback guard.
-
-## Limitations and safety
-
-Browser audio routing support varies by browser and OS. Safari may ignore a route change even after a successful API call. Bluetooth speakers may be unavailable for mic monitoring, or introduce high latency. No browser code can guarantee speakerphone selection. Microphone and speaker on one phone can create dangerous feedback. Start with low physical volume, Echo/Reverb at zero, and stop immediately if feedback occurs. Feedback guard is experimental, not hearing protection. Audio routing cannot be fully validated without real devices.
-
-## v0.7 changes
-- Audio output picker hidden/removed from the UI because iPhone Safari routing is unreliable. Playback uses the OS default route.
-- Three one-tap microphone presets: **Tự nhiên**, **Karaoke**, **Hội trường**.
-- **Tùy chỉnh** expands detailed microphone Bass, Treble, Echo, Echo Delay, Echo Feedback, Reverb, and Reverb Time sliders.
-- Manually moving a microphone effects slider changes the selected preset state to custom. Re-select a preset to restore its values.
-- Music controls and the v0.4 noise/safety section are unchanged.
-- These are starting points, not guaranteed safe settings. Start with low system volume; speaker-to-mic feedback can occur.
+## Important limitations
+AEC depends on browser/OS and may not remove music played through the same phone. The mic input meter is pre-processing. Filters and compression are **not** AI source separation. Feedback Guard is heuristic, not hearing protection. Bluetooth/speaker routing cannot be guaranteed by Safari. Browser backgrounding stops microphone and pauses music. Real karaoke at 30 cm on built-in speaker may require native voice-processing APIs or external microphone/speaker separation.

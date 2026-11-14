@@ -14,7 +14,9 @@ const controls = {
   reverbTime: { slider: $('reverbTime'), label: $('reverbTimeLabel') },
   windCut: { slider: $('windCut'), label: $('windCutLabel') },
   fanCut: { slider: $('fanCut'), label: $('fanCutLabel') },
-  gateThreshold: { slider: $('gateThreshold'), label: $('gateThresholdLabel') }
+  gateThreshold: { slider: $('gateThreshold'), label: $('gateThresholdLabel') },
+  voiceBoost: { slider: $('voiceBoost'), label: $('voiceBoostLabel') },
+  voiceFocus: { slider: $('voiceFocus'), label: $('voiceFocusLabel') }
 };
 // Voice presets change only microphone EQ and spatial effects, never music or safety filters.
 const MIC_PRESETS = Object.freeze({
@@ -63,6 +65,10 @@ let gateLevel = 1;
 let guardTripped = false;
 let suspiciousFrames = 0;
 let lastMeterTime = 0;
+let latestRms = 0;
+let diagnostic = null;
+const testData = {};
+const smartOptions = ['smartEnabled','aecEnabled','nsEnabled','agcEnabled'];
 const guardStatus = $('guardStatus');
 function resetGuard() {
   guardTripped = false;
@@ -73,7 +79,7 @@ function resetGuard() {
   updateControls();
 }
 $('resetGuard').addEventListener('click', resetGuard);
-for (const id of ['noiseFilter','humFilter','gateEnabled','feedbackGuard']) {
+for (const id of ['noiseFilter','humFilter','gateEnabled','feedbackGuard','smartEnabled']) {
   $(id).addEventListener('change', updateControls);
 }
 
@@ -96,6 +102,8 @@ function updateControls() {
   const echoFeedback = Number(controls.echoFeedback.slider.value) / 100;
   const reverb = Number(controls.reverb.slider.value) / 100;
   const reverbTime = Number(controls.reverbTime.slider.value) / 10;
+  controls.voiceBoost.label.textContent = `${controls.voiceBoost.slider.value}%`;
+  controls.voiceFocus.label.textContent = `${controls.voiceFocus.slider.value}%`;
   controls.gain.label.textContent = `${Math.round(gain * 100)}%`;
   controls.bass.label.textContent = `${bass > 0 ? '+' : ''}${bass} dB`;
   controls.treble.label.textContent = `${treble > 0 ? '+' : ''}${treble} dB`;
@@ -116,6 +124,12 @@ function updateControls() {
   nodes.humNotch.frequency.value = $('humFilter').checked ? 50 : 10;
   nodes.humNotch.gain.value = 0;
   if (!$('gateEnabled').checked) nodes.gate.gain.setTargetAtTime(1, t, 0.03);
+  const smart = $('smartEnabled').checked;
+  nodes.voiceCompressor.ratio.setTargetAtTime(smart ? 3 : 1, t, 0.04);
+  const focus = smart ? Number(controls.voiceFocus.slider.value) / 100 : 0;
+  nodes.voiceHighpass.frequency.setTargetAtTime(70 + 110 * focus, t, 0.04);
+  nodes.voiceLowpass.frequency.setTargetAtTime(14000 - 9500 * focus, t, 0.04);
+  nodes.voiceBoost.gain.setTargetAtTime(smart ? 1 + Number(controls.voiceBoost.slider.value) / 100 : 1, t, 0.04);
   nodes.bass.gain.setTargetAtTime(bass, t, 0.02);
   nodes.treble.gain.setTargetAtTime(treble, t, 0.02);
   nodes.echoGain.gain.setTargetAtTime(echo, t, 0.02);
@@ -149,6 +163,7 @@ function updateMeter(timestamp = 0) {
   let sum = 0;
   for (const sample of samples) sum += sample * sample;
   const rms = Math.sqrt(sum / samples.length);
+  latestRms = rms;
   meter.value = Math.min(100, Math.round(rms * 250));
   const db = 20 * Math.log10(Math.max(rms, 0.000001));
   if ($('gateEnabled').checked) {
@@ -211,6 +226,8 @@ async function stop() {
     try { await oldContext.close(); } catch (err) { console.warn('Audio close:', err); }
   }
   meter.value = 0;
+  latestRms = 0;
+  cancelDiagnostic('Đã dừng micro; phép đo bị hủy.');
   setRunning(false);
 }
 
@@ -221,7 +238,7 @@ async function start() {
   stopRequested = false;
   resetGuard();
   const localStream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+    audio: { echoCancellation: $('aecEnabled').checked, noiseSuppression: $('nsEnabled').checked, autoGainControl: $('agcEnabled').checked },
     video: false
   });
   if (stopRequested || document.hidden) {
@@ -229,6 +246,9 @@ async function start() {
     return;
   }
   stream = localStream;
+  const actual = localStream.getAudioTracks()[0]?.getSettings?.() || {};
+  const showSetting = (key) => typeof actual[key] === 'boolean' ? (actual[key] ? 'bật' : 'tắt') : 'không báo';
+  $('captureStatus').textContent = `Cài đặt trình duyệt báo: AEC ${showSetting('echoCancellation')}, khử ồn ${showSetting('noiseSuppression')}, AGC ${showSetting('autoGainControl')}. Kết quả thực tế có thể khác.`;
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error('Trình duyệt không hỗ trợ Web Audio API.');
   context = new AudioContextClass({ latencyHint: 'interactive' });
@@ -263,6 +283,12 @@ async function start() {
   const lowpass = context.createBiquadFilter();
   lowpass.type = 'lowpass'; lowpass.frequency.value = 6500;
   const gate = context.createGain(); gate.gain.value = 1;
+  const voiceHighpass = context.createBiquadFilter(); voiceHighpass.type = 'highpass';
+  const voiceLowpass = context.createBiquadFilter(); voiceLowpass.type = 'lowpass';
+  const voiceBoost = context.createGain(); voiceBoost.gain.value = 1;
+  const voiceCompressor = context.createDynamicsCompressor();
+  voiceCompressor.threshold.value = -30; voiceCompressor.knee.value = 12;
+  voiceCompressor.ratio.value = 3; voiceCompressor.attack.value = 0.008; voiceCompressor.release.value = 0.18;
   const spectrum = context.createAnalyser();
   spectrum.fftSize = 2048;
   spectrum.smoothingTimeConstant = 0.7;
@@ -271,8 +297,12 @@ async function start() {
   source.connect(highpass);
   highpass.connect(humNotch);
   humNotch.connect(lowpass);
-  lowpass.connect(gate);
-  gate.connect(bass);
+  lowpass.connect(voiceHighpass);
+  voiceHighpass.connect(voiceLowpass);
+  voiceLowpass.connect(gate);
+  gate.connect(voiceCompressor);
+  voiceCompressor.connect(voiceBoost);
+  voiceBoost.connect(bass);
   bass.connect(treble);
   // Dry + limited feedback echo + artificial room reverb.
   treble.connect(mix);
@@ -293,7 +323,7 @@ async function start() {
   mix.connect(limiter);
   limiter.connect(outputGain);
   outputGain.connect(context.destination);
-  nodes = { source, analyser, spectrum, highpass, humNotch, lowpass, gate, bass, treble, delay, feedbackGain, echoGain, convolver, reverbGain, mix, limiter, outputGain };
+  nodes = { source, analyser, spectrum, highpass, humNotch, lowpass, voiceHighpass, voiceLowpass, voiceCompressor, voiceBoost, gate, bass, treble, delay, feedbackGain, echoGain, convolver, reverbGain, mix, limiter, outputGain };
   await context.resume();
   if (stopRequested || document.hidden) return;
   updateControls();
@@ -427,3 +457,51 @@ updateMusicControls();
 syncTransport();
 
 
+
+// Diagnostic measurements: RMS is sampled from the unprocessed microphone, not a vocal separation score.
+function renderTests() {
+  const names = {music:'Chỉ nhạc',voice:'Chỉ hát',both:'Nhạc + hát'};
+  const lines = Object.entries(names).map(([key,name]) => `${name}: ${testData[key] === undefined ? 'chưa đo' : testData[key].toFixed(1) + ' dBFS'}`);
+  if (testData.music !== undefined && testData.voice !== undefined) {
+    lines.push(`Chênh lệch mức giọng (chỉ hát) – nhạc lọt mic: ${(testData.voice-testData.music).toFixed(1)} dB`);
+  }
+  lines.push('Chỉ số là mức âm đo được, không chứng minh tách giọng hay chống hú.');
+  $('testResults').textContent = lines.join('\n');
+}
+function cancelDiagnostic(message) {
+  if (!diagnostic) return;
+  clearInterval(diagnostic.timer);
+  diagnostic = null;
+  $('testStatus').textContent = message;
+  for (const id of ['testMusic','testVoice','testBoth']) $(id).disabled = false;
+}
+function runDiagnostic(key) {
+  if (!stream || !nodes || !context || context.state !== 'running') {
+    $('testStatus').textContent = 'Hãy bật micro trước khi đo.'; return;
+  }
+  if (diagnostic) return;
+  const labels = {music:'Chỉ nhạc: phát nhạc, không hát',voice:'Chỉ hát: tắt nhạc và hát cách 30 cm',both:'Nhạc + hát: phát nhạc và hát cách 30 cm'};
+  const values = [];
+  let ticks = 0;
+  for (const id of ['testMusic','testVoice','testBoth']) $(id).disabled = true;
+  $('testStatus').textContent = labels[key] + ' — đang đo 5 giây…';
+  diagnostic = {timer:setInterval(() => {
+    if (!stream || !nodes || document.hidden) { cancelDiagnostic('Đã hủy phép đo.'); return; }
+    values.push(latestRms * latestRms); ticks++;
+    $('testStatus').textContent = `${labels[key]} — ${Math.max(0,5-ticks)} giây còn lại` ;
+    if (ticks >= 5) {
+      const rms = Math.sqrt(values.reduce((a,b)=>a+b,0)/values.length);
+      testData[key] = 20*Math.log10(Math.max(0.000001,rms));
+      cancelDiagnostic('Đo xong. Hãy thử các chế độ còn lại ở cùng âm lượng loa.');
+      renderTests();
+    }
+  },1000)};
+}
+$('testMusic').addEventListener('click',()=>runDiagnostic('music'));
+$('testVoice').addEventListener('click',()=>runDiagnostic('voice'));
+$('testBoth').addEventListener('click',()=>runDiagnostic('both'));
+$('clearTests').addEventListener('click',()=>{cancelDiagnostic('Đã xóa kết quả.');for(const key of Object.keys(testData)) delete testData[key];renderTests();});
+for(const id of ['aecEnabled','nsEnabled','agcEnabled']) $(id).addEventListener('change',()=>{
+  if(stream) $('captureStatus').textContent='Thay đổi đã ghi nhận. Tắt rồi bật lại micro để yêu cầu cài đặt mới.';
+});
+renderTests();
